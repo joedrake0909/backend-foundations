@@ -106,3 +106,120 @@ src/day1/
 ├── index.ts
 └── types.ts
 ```
+
+## Day 3 - Node.js, HTTP, and Express REST API
+
+Day 3 turns the typed task logic into an in-memory HTTP API using Express.
+
+### Install and Run
+
+Install the runtime and TypeScript Express dependencies:
+
+```bash
+npm install express
+npm install -D @types/express
+```
+
+Run the development server:
+
+```bash
+npm run dev
+```
+
+The server uses `process.env.PORT` when provided and falls back to port `3000`.
+
+Build and run the compiled JavaScript:
+
+```bash
+npm run build
+npm start
+```
+
+### Request Flow
+
+```text
+HTTP request
+		-> Express app
+		-> JSON parser and request logger middleware
+		-> route
+		-> controller
+		-> task service
+		-> HTTP response
+```
+
+The controller translates HTTP data into service calls. The service manages task data and does not depend on Express or HTTP status codes.
+
+### API Endpoints
+
+| Method | Endpoint | Success | Purpose |
+| --- | --- | --- | --- |
+| GET | `/health` | 200 | Check that the server is running |
+| GET | `/tasks` | 200 | List all tasks |
+| GET | `/tasks/:id` | 200 | Get one task |
+| POST | `/tasks` | 201 | Create a task |
+| PATCH | `/tasks/:id` | 200 | Update supplied task fields |
+| DELETE | `/tasks/:id` | 204 | Delete a task without a response body |
+
+Invalid request data returns `400`. A valid ID with no matching task returns `404`.
+
+### API Testing Checklist
+
+Test these requests with Postman, Bruno, Insomnia, or `curl`:
+
+1. `GET /health` returns `200` and `{ "status": "ok" }`.
+2. `POST /tasks` with valid JSON returns `201` and a generated ID and `createdAt`.
+3. `POST /tasks` with missing fields returns `400`.
+4. `GET /tasks` includes the newly created task.
+5. `GET /tasks/:id` returns the task for a known ID.
+6. `GET /tasks/999` returns `404`.
+7. `PATCH /tasks/:id` changes only the supplied fields and returns `200`.
+8. `DELETE /tasks/:id` returns `204`.
+9. Requesting the deleted ID returns `404`.
+
+Example requests:
+
+```bash
+curl http://localhost:3000/health
+curl http://localhost:3000/tasks
+curl http://localhost:3000/tasks/1
+```
+
+Create a task:
+
+```bash
+curl -i -X POST http://localhost:3000/tasks \
+	-H "Content-Type: application/json" \
+	-d '{"title":"Learn Express","description":"Build a REST API","status":"todo","priority":"high","assignee":"Alice"}'
+```
+
+Update a task:
+
+```bash
+curl -i -X PATCH http://localhost:3000/tasks/1 \
+	-H "Content-Type: application/json" \
+	-d '{"status":"done"}'
+```
+
+Delete a task:
+
+```bash
+curl -i -X DELETE http://localhost:3000/tasks/1
+```
+
+### Day 3 Structure
+
+```text
+src/
+├── app.ts
+├── server.ts
+├── controllers/
+│   └── taskController.ts
+├── middleware/
+│   └── requestLogger.ts
+├── models/
+│   └── task.ts
+├── routes/
+│   └── taskRoutes.ts
+└── services/
+		└── taskService.ts
+```
