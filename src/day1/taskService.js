@@ -1,11 +1,6 @@
 const { tasks } = require("./data.js");
 const VALID_STATUSES = ["todo", "in-progress", "done"];
 
-// generate next id for new task
-function nextId() {
-    if (tasks.length === 0) return 1;
-    return Math.max(...tasks.map(task => task.id)) + 1;
-}
 
 // finds task by id
 function findTaskById(id) {
@@ -73,8 +68,10 @@ function updateTask(id, updates) {
         throw new Error(`Task with id ${id} does not exist`);
     }
 
-    // update status
-    task.status = updates.status;
+    // update status only when a new status was provided
+    if (updates.status !== undefined) {
+        task.status = updates.status;
+    }
 
     //  return updated task
     return task;
@@ -100,7 +97,6 @@ function getTaskSummary() {
 }
 
 module.exports = {
-    nextId,
     findTaskById,
     addTask,
     deleteTask,
