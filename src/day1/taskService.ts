@@ -1,9 +1,14 @@
-const { tasks } = require("./data.js");
-const VALID_STATUSES = ["todo", "in-progress", "done"];
+
+import type { Task, TaskStatus } from "./types.js";
+
+
+
+const { tasks } = require("./data.js") as { tasks: Task[] };
+const VALID_STATUSES: TaskStatus[] = ["todo", "in-progress", "done"];
 
 
 // finds task by id
-function findTaskById(id) {
+function findTaskById(id: number): Task | null {
     if ( typeof id !== "number" ) {
         throw new Error("Id must be a number");
     }
@@ -15,7 +20,7 @@ function findTaskById(id) {
 
 
 // Add a new task to the tasks array
-function addTask({ id, title, status, priority, assignee} = {}) {
+function addTask({ id, title, description, status, priority, assignee, createdAt }: Task ): Task{
 
     if (id === undefined) {
         throw new Error("task id is required");
@@ -30,13 +35,13 @@ function addTask({ id, title, status, priority, assignee} = {}) {
         throw new Error(`Task with id ${id} already exists`);
     }
 
-    const task = {id, title, status, priority, assignee};
+    const task = {id, title, description, status, priority, assignee, createdAt};
     tasks.push(task);
     return task;
 }
 
 // delete a task by id
-function deleteTask(id) {
+function deleteTask(id: number): Task {
     if ( typeof id !== "number" ) {
         throw new Error("Id must be a number");
     }
@@ -51,7 +56,7 @@ function deleteTask(id) {
 }
 
 // update task status
-function updateTask(id, updates) {
+function updateTask(id: number , updates: { status?: TaskStatus }): Task {
     //validate id type
     if (typeof id !== "number") {
         throw new Error("ID must be a number");
@@ -78,7 +83,7 @@ function updateTask(id, updates) {
 }
 
 // get tasks by status
-function getTasksByStatus(status) {
+function getTasksByStatus(status: TaskStatus): Task[] {
     if (!VALID_STATUSES.includes(status)) {
         throw new Error(`Invalid status: ${status}`);
     }
@@ -87,7 +92,13 @@ function getTasksByStatus(status) {
 }
 
 // summarize tasks by status
-function getTaskSummary() {
+function getTaskSummary(): { 
+    total: number;
+    todo: number;
+    inProgress: number;
+    done: number;
+}   { 
+    
     return {
         total: tasks.length,
         todo: tasks.filter(task => task.status === "todo").length,
