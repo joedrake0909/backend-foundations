@@ -8,6 +8,7 @@ import type {
 } from "../models/task.js";
 
 import {
+    deleteTask as deleteTaskService,
     updateTask as updateTaskService,
     createTask as createTaskService,
     getTaskById as findTaskById,
@@ -243,3 +244,29 @@ export function updateTask(
 
 
 
+export function deleteTask(
+    request: Request,
+    response: Response
+): void {
+    const taskId = Number(request.params.id);
+
+    if (!Number.isInteger(taskId)) {
+        response.status(400).json({
+            error: "Task ID must be a number"
+        });
+
+        return;
+    }
+
+    const deletedTask = deleteTaskService(taskId);
+
+    if (!deletedTask) {
+        response.status(404).json({
+            error: "Task not found"
+        });
+
+        return;
+    }
+
+    response.status(204).send();
+}
