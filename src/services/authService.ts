@@ -14,6 +14,7 @@ import {
 } from "../repositories/userRepository.js";
 
 import type {
+    AuthenticatedUser,
     AuthToken,
     LoginInput,
     RegisterUserInput,
@@ -154,4 +155,43 @@ export async function loginUser(
         tokenType: "Bearer",
         expiresIn: JWT_EXPIRES_IN
     };
+}
+
+
+
+export function verifyAccessToken(
+    token: string
+): AuthenticatedUser {
+    let payload: string | jwt.JwtPayload;
+
+    try {
+        // verify checks the signature and the exp claim. Pinning the
+        // algorithm stops a token from choosing a weaker one (e.g. "none").
+        payload = jwt.verify(token, JWT_SECRET, {
+            algorithms: [JWT_ALGORITHM]
+        });
+    } catch (error) {
+        if (error instanceof jwt.TokenExpiredError) {
+            throw new AppError(401, "Token has expired");
+        }
+
+        throw new AppError(401, "Invalid token");
+    }
+
+    if (typeof payload === "string") {
+        throw new AppError(401, "Invalid token");
+    }
+
+    const id = Number(payload.sub);
+    const role: unknown = payload.role;
+
+    if (
+        !Number.isInteger(id)
+        || id <= 0
+        || (role !== "user" && role !== "admin")
+    ) {
+        throw new AppError(401, "Invalid token");
+    }
+
+    return { id, role };
 }

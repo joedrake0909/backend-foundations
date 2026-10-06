@@ -8,6 +8,7 @@ import projectRouter from "./routes/projectRoutes.js";
 import databaseTaskRouter from "./routes/databaseTaskRoutes.js";
 import databaseTaskByIdRouter from "./routes/databaseTaskByIdRoutes.js";
 import taskRouter from "./routes/taskRoutes.js";
+import userRouter from "./routes/userRoutes.js";
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/auth", authRouter);
+app.use("/users", userRouter);
 
 app.use("/projects", projectRouter);
 

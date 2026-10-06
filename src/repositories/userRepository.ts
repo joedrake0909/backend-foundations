@@ -55,6 +55,29 @@ export async function findUserByEmail(
 
 
 
+export async function findUserById(
+    id: number
+): Promise<User | null> {
+    const result = await pool.query<UserRow>(
+        `
+        SELECT id, name, email, role, created_at
+        FROM users
+        WHERE id = $1
+        `,
+        [id]
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+        return null;
+    }
+
+    return mapRowToUser(row);
+}
+
+
+
 export async function createUser(
     input: CreateUserInput
 ): Promise<User> {

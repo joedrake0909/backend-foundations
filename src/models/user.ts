@@ -33,6 +33,13 @@ export interface LoginInput {
     password: string;
 }
 
+// The identity proven by a verified JWT. Authentication middleware
+// attaches it to the request as request.user.
+export interface AuthenticatedUser {
+    id: number;
+    role: UserRole;
+}
+
 export interface AuthToken {
     token: string;
     tokenType: "Bearer";
