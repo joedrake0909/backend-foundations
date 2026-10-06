@@ -46,19 +46,7 @@ export async function createProject(
     input: CreateProjectInput,
     ownerId: number
 ): Promise<Project> {
-    const trimmedName = input.name.trim();
-
-    if (trimmedName.length === 0) {
-        throw new AppError(400, "Project name is required");
-    }
-
-    return createProjectRepository(
-        {
-            name: trimmedName,
-            description: input.description
-        },
-        ownerId
-    );
+    return createProjectRepository(input, ownerId);
 }
 
 
@@ -79,31 +67,11 @@ export async function updateProject(
     input: UpdateProjectInput,
     actor: AuthenticatedUser
 ): Promise<Project | null> {
-    const updates: UpdateProjectInput = {};
-
-    if (input.name !== undefined) {
-        const trimmedName = input.name.trim();
-
-        if (trimmedName.length === 0) {
-            throw new AppError(400, "Project name cannot be empty");
-        }
-
-        updates.name = trimmedName;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(input, "description")) {
-        updates.description = input.description ?? null;
-    }
-
-    if (Object.keys(updates).length === 0) {
-        throw new AppError(400, "At least one project field is required");
-    }
-
     if (!await findManageableProject(id, actor)) {
         return null;
     }
 
-    return updateProjectRepository(id, updates);
+    return updateProjectRepository(id, input);
 }
 
 

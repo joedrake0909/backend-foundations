@@ -9,6 +9,8 @@ import {
     changeUserRole as changeUserRoleService,
     listUsers as listUsersService
 } from "../services/userService.js";
+import { idParamSchema } from "../validators/common.js";
+import { updateRoleSchema } from "../validators/userValidators.js";
 
 export async function listUsers(
     _request: Request,
@@ -30,29 +32,11 @@ export async function changeUserRole(
     next: NextFunction
 ): Promise<void> {
     try {
-        const userId = Number(request.params.id);
-
-        if (!Number.isInteger(userId) || userId <= 0) {
-            response.status(400).json({
-                error: "User ID must be a positive integer"
-            });
-
-            return;
-        }
-
-        const body = request.body as Record<string, unknown> | undefined;
-        const role = body?.role;
-
-        if (role !== "user" && role !== "admin") {
-            response.status(400).json({
-                error: "Role must be 'user' or 'admin'"
-            });
-
-            return;
-        }
+        const { id } = idParamSchema.parse(request.params);
+        const { role } = updateRoleSchema.parse(request.body);
 
         const user = await changeUserRoleService(
-            userId,
+            id,
             role,
             currentUser(request)
         );
