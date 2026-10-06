@@ -543,3 +543,229 @@ After the mentor confirms the evidence, the intern—not the mentor—should:
 The `Resources_info` training files are reference material and should not be treated as
 application source code. Keep secrets and local environment files ignored. The mentor does not
 run these cleanup or Git commands on the intern's behalf.
+
+## Phase 2 - Day 6 Authentication: Passwords and JWT
+
+Day 6 adds user registration, login and a protected endpoint. It answers one question for every protected request: **who is making this request?** What that user is *allowed* to do is Day 7.
+
+### Setup
+
+Install the new dependencies:
+
+```bash
+npm install bcryptjs jsonwebtoken
+npm install -D @types/jsonwebtoken
+```
+
+`bcryptjs` is a pure-JavaScript bcrypt implementation. It produces standard bcrypt hashes (`$2b$...`) and needs no native build tools on Windows.
+
+Add these to your local `.env`. `.env.example` lists the names without real values:
+
+| Variable | Purpose | Example |
+| --- | --- | --- |
+| `JWT_SECRET` | Key used to sign and verify tokens. Must be at least 32 characters. | generate one (below) |
+| `JWT_EXPIRES_IN` | Token lifetime: seconds or a number with `s`/`m`/`h`/`d`. Defaults to `1h`. | `1h` |
+
+Generate a secret:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+The server refuses to start if `JWT_SECRET` is missing or shorter than 32 characters. A placeholder such as `replace_me` would let anyone forge tokens, so failing early is safer than running with one. Never commit `.env`.
+
+No schema change is needed: the Day 4 `users` table already has `email UNIQUE`, `password_hash` and `role DEFAULT 'user'`.
+
+### Endpoints
+
+| Method | Endpoint | Auth | Success | Purpose |
+| --- | --- | --- | --- | --- |
+| POST | `/auth/register` | none | `201` | Create a user; returns safe user fields |
+| POST | `/auth/login` | none | `200` | Check credentials; returns a JWT |
+| GET | `/users/me` | Bearer token | `200` | Return the user identified by the token |
+
+Error responses:
+
+| Situation | Status | Body |
+| --- | --- | --- |
+| Missing/invalid name, email or password on register | `400` | specific validation message |
+| Email already registered | `409` | `Email is already registered` |
+| Wrong password **or** unknown email on login | `401` | `Invalid email or password` |
+| No `Authorization` header | `401` | `Authentication required` |
+| Header not in `Bearer <token>` form | `401` | `Authorization header must be in the format: Bearer <token>` |
+| Bad signature, tampered or malformed token | `401` | `Invalid token` |
+| Expired token | `401` | `Token has expired` |
+
+### Request flow
+
+```text
+POST /auth/register
+  -> authRoutes -> authController.register   (body shape: name/email/password are strings)
+  -> authService.registerUser                (trim name, lowercase email, length rules)
+  -> userRepository.findUserByEmail          (duplicate? -> 409)
+  -> bcrypt.hash(password, 10)
+  -> userRepository.createUser               (INSERT ... RETURNING safe columns only)
+  -> 201 { id, name, email, role, createdAt }
+
+POST /auth/login
+  -> authController.login
+  -> authService.loginUser
+  -> userRepository.findUserByEmail
+  -> bcrypt.compare(password, stored hash)   (any failure -> the same 401)
+  -> jwt.sign({ role }, JWT_SECRET, { subject: id, expiresIn, HS256 })
+  -> 200 { token, tokenType: "Bearer", expiresIn }
+
+GET /users/me
+  -> userRoutes -> authenticate middleware   (read header, verify token, set request.user)
+  -> userController.getMe                    (uses request.user.id only)
+  -> userService.getCurrentUser -> userRepository.findUserById
+  -> 200 safe user
+```
+
+### Files added
+
+| File | Responsibility |
+| --- | --- |
+| `src/config/auth.ts` | Reads and checks `JWT_SECRET` / `JWT_EXPIRES_IN` at startup |
+| `src/models/user.ts` | `User` (safe), `UserWithPasswordHash` (internal), input and token types |
+| `src/types/express.d.ts` | Adds the typed `request.user` property to Express's `Request` |
+| `src/repositories/userRepository.ts` | Parameterized SQL for users and row mapping |
+| `src/services/authService.ts` | Registration, login, hashing, JWT signing and verification |
+| `src/services/userService.ts` | Loading the current user |
+| `src/middleware/authenticate.ts` | Bearer-token middleware |
+| `src/controllers/authController.ts` | HTTP handling for register and login |
+| `src/controllers/userController.ts` | HTTP handling for `/users/me` |
+| `src/routes/authRoutes.ts`, `src/routes/userRoutes.ts` | URL-to-controller mapping |
+
+### Authentication vs authorization
+
+- **Authentication** proves *who* you are. Here, a correct password at login gives you a signed token, and presenting that token later proves you are the same user.
+- **Authorization** decides *what* that proven user may do, for example "only the owner may delete this project". It needs authentication first, because you cannot check ownership without a trusted identity.
+- That is the difference between `401` and `403`. `401` means "I don't know who you are" (no token, a bad token or an expired token). `403` means "I know who you are, but you are not allowed to do this". Day 6 only produces `401`; Day 7 will add `403`.
+
+### Password hashing
+
+- Passwords are never stored. Only a bcrypt hash goes into `users.password_hash`.
+- **Hashing is not encryption.** Encryption can be reversed with a key; a hash cannot. At login, the server hashes the supplied password again with the salt stored inside the hash and compares the results. It never needs to recover the original password.
+- bcrypt adds a random **salt** per password, so two users with the same password get different hashes, and precomputed lookup tables are useless.
+- bcrypt is deliberately **slow** (cost factor 10 means 2^10 rounds). That is barely noticeable for one login but makes guessing millions of passwords from a leaked table very expensive.
+- bcrypt only reads the first 72 bytes of a password, so registration rejects longer passwords instead of silently ignoring the extra characters.
+- API responses never include `password_hash`. The repository's `INSERT ... RETURNING` and `findUserById` do not even select it. Only the login lookup reads the hash, and it stays inside the service.
+
+### JWT
+
+- A JWT has three base64url parts: `header.payload.signature`.
+  - **header**: the algorithm (`HS256`) and type.
+  - **payload**: claims. This API puts in `sub` (user ID), `role`, `iat` (issued at) and `exp` (expiry).
+  - **signature**: an HMAC of the header and payload computed with `JWT_SECRET`.
+- The payload is **encoded, not encrypted**. Anyone with the token can decode and read it, so it never holds a password, a hash or any other secret.
+- The signature is what makes the token trustworthy. Changing even one character of the payload (for example `role: "user"` → `"admin"`) makes the signature fail to verify. Only someone who knows `JWT_SECRET` can produce a valid signature, which is why the secret must come from configuration and never be committed.
+- **What a JWT proves:** this server issued it, to this user ID, and it has not been changed or expired.
+- **What it does not prove:** that the user still exists, that their role has not changed since the token was issued, or that the person sending it is the person it was issued to (a stolen token works until it expires). This is why tokens expire, why `/users/me` reloads the user from the database, and why a deleted user's token gets `401`.
+- Verification pins the algorithm to `HS256`, so a token that claims `alg: none` (unsigned) is rejected.
+
+### Authentication middleware
+
+`src/middleware/authenticate.ts`:
+
+1. Reads `Authorization`. If it is missing → `401`.
+2. Requires exactly `Bearer <token>`. Any other shape → `401`.
+3. Calls `verifyAccessToken`, which checks the signature, the algorithm and `exp`, then checks that `sub` is a positive integer and `role` is `user` or `admin`.
+4. Sets `request.user = { id, role }` (typed through `src/types/express.d.ts`).
+5. Calls `next()` only after verification succeeds. Every failure goes to the central `errorHandler`, and the response carries a `WWW-Authenticate: Bearer` header.
+
+`/users/me` uses only `request.user.id`. It ignores any user ID in the body, the query string or the URL, because the verified token already tells us who the caller is.
+
+### Security decisions
+
+- **Generic login failure.** An unknown email and a wrong password both return `401 Invalid email or password`. When the email is unknown, the service still runs `bcrypt.compare` against a dummy hash, so the response time does not reveal which emails are registered either.
+- **Registration has to say `409` for duplicates.** The Day 6 spec requires rejecting duplicate emails, so registration necessarily reveals that an email exists. Login still does not.
+- **Emails are trimmed and lowercased** before storage and lookup, so `Alice@Example.com` and `alice@example.com` are the same account.
+- **Role cannot be self-assigned.** `/auth/register` ignores any `role` in the body; the database default `user` always applies.
+- **Race-safe duplicates.** If two registrations for the same email arrive at once, both can pass the lookup. The `UNIQUE` constraint then rejects the second insert, and the PostgreSQL error `23505` is mapped to `409` rather than leaking a database error as `500`.
+- **Seed users cannot log in.** Their `password_hash` values from Day 4 are placeholders, not bcrypt hashes, so login for them fails with the normal `401`. Register a new user to test.
+
+### How to test
+
+Start the server (`npm run dev`), then in Git Bash:
+
+```bash
+# 1. Register
+curl.exe -i -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Day Six Tester","email":"day6.tester@example.com","password":"correct-horse-battery"}'
+
+# 2. Login and keep the token
+TOKEN=$(curl.exe -s -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"day6.tester@example.com","password":"correct-horse-battery"}' \
+  | node -pe "JSON.parse(require('fs').readFileSync(0)).token")
+
+# 3. Protected endpoint
+curl.exe -i http://localhost:3000/users/me                                   # 401 no token
+curl.exe -i http://localhost:3000/users/me -H "Authorization: Bearer nope"   # 401 invalid
+curl.exe -i http://localhost:3000/users/me -H "Authorization: Bearer $TOKEN" # 200
+```
+
+Confirm that the database holds a hash and not the password:
+
+```sql
+SELECT id, email, left(password_hash, 7) AS prefix, length(password_hash) AS len
+FROM users ORDER BY id DESC LIMIT 1;
+-- prefix = $2b$10$, len = 60
+```
+
+### Day 6 test evidence
+
+All checks below were run against the local PostgreSQL database with `npm run build` passing.
+
+Registration:
+
+| Request | Status | Response / proof |
+| --- | --- | --- |
+| Valid `name`/`email`/`password` (email typed as `Day6.Tester@Example.com`) | `201` | `{"id":8,"name":"Day Six Tester","email":"day6.tester@example.com","role":"user","createdAt":...}`, with no `password_hash` and the email lowercased |
+| Same email again | `409` | `Email is already registered` |
+| Missing password | `400` | `Name, email and password are required` |
+| Email `not-an-email` | `400` | `A valid email is required` |
+| Password `abc` | `400` | `Password must be between 8 and 72 bytes` |
+| Name of only spaces | `400` | `Name must be between 1 and 100 characters` |
+| Body is a JSON array | `400` | `Request body must be an object` |
+| Body includes `"role":"admin"` | `201` | Created with `"role":"user"`; the role was ignored |
+| Database row | n/a | `password_hash` starts with `$2b$10$`, is 60 characters long and does not equal the plaintext |
+
+Login:
+
+| Request | Status | Response / proof |
+| --- | --- | --- |
+| Correct credentials (email in different case) | `200` | `{"token":"eyJ...","tokenType":"Bearer","expiresIn":"1h"}` |
+| Decoded token | n/a | header `{"alg":"HS256","typ":"JWT"}`, payload `{"role":"user","iat":...,"exp":...,"sub":"8"}`, where `exp - iat = 3600` and there is no password or hash |
+| Wrong password | `401` | `Invalid email or password` |
+| Unknown email | `401` | `Invalid email or password` (identical) |
+| Seed user with placeholder hash | `401` | `Invalid email or password` |
+| Missing password | `400` | `Email and password are required` |
+
+`GET /users/me`:
+
+| Request | Status | Response |
+| --- | --- | --- |
+| No `Authorization` header | `401` | `Authentication required` |
+| `Authorization: Basic abc123` | `401` | `Authorization header must be in the format: Bearer <token>` |
+| `Authorization: Bearer` (no token) | `401` | same as above |
+| `Bearer not.a.jwt` | `401` | `Invalid token` |
+| Real token with payload edited to `role: admin` | `401` | `Invalid token` (the signature no longer matches) |
+| Token signed with a different secret | `401` | `Invalid token` |
+| Unsigned `alg: none` token claiming admin | `401` | `Invalid token` |
+| Correctly signed token with `exp` in the past | `401` | `Token has expired` |
+| Valid token from `/auth/login` | `200` | `{"id":8,"name":"Day Six Tester","email":"day6.tester@example.com","role":"user",...}` |
+| Valid token plus body `{"id":1}` | `200` | Still user `8`; the body is ignored |
+| Correctly signed token for a user ID that does not exist | `401` | `User account no longer exists` |
+
+Regression: `GET /projects`, `/projects/1`, `/projects/1/tasks` → `200`, and `/projects/99999` → `404`, the same as Day 5. Project and task routes are not protected yet; protecting write endpoints is Day 7 work.
+
+### Day 6 teach-back
+
+- **Authentication vs authorization:** proving identity vs checking permission.
+- **Comparing without recovering:** bcrypt re-hashes the attempt with the stored salt and cost and compares the hashes. The original password is never needed again.
+- **What a client can see in a JWT:** the header and payload, which are only base64url-encoded. Only the signature depends on the secret.
+- **Why the secret is configuration:** anyone who has it can mint tokens for any user or role. It has to stay out of Git and differ between environments.
+- **Why login errors are generic:** saying "no such email" turns login into a tool for discovering which accounts exist.
