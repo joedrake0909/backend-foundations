@@ -1,5 +1,4 @@
 import type {
-    NextFunction,
     Request,
     Response
 } from "express";
@@ -8,102 +7,29 @@ import {
     loginUser as loginUserService,
     registerUser as registerUserService
 } from "../services/authService.js";
+import {
+    loginSchema,
+    registerSchema
+} from "../validators/authValidators.js";
 
 export async function register(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const body = request.body as Record<string, unknown>;
+    const input = registerSchema.parse(request.body);
 
-        if (
-            typeof body !== "object"
-            || body === null
-            || Array.isArray(body)
-        ) {
-            response.status(400).json({
-                error: "Request body must be an object"
-            });
+    const user = await registerUserService(input);
 
-            return;
-        }
-
-        const {
-            name,
-            email,
-            password
-        } = body;
-
-        if (
-            typeof name !== "string"
-            || typeof email !== "string"
-            || typeof password !== "string"
-        ) {
-            response.status(400).json({
-                error: "Name, email and password are required"
-            });
-
-            return;
-        }
-
-        const user = await registerUserService({
-            name,
-            email,
-            password
-        });
-
-        response.status(201).json(user);
-    } catch (error) {
-        next(error);
-    }
+    response.status(201).json(user);
 }
-
-
 
 export async function login(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const body = request.body as Record<string, unknown>;
+    const input = loginSchema.parse(request.body);
 
-        if (
-            typeof body !== "object"
-            || body === null
-            || Array.isArray(body)
-        ) {
-            response.status(400).json({
-                error: "Request body must be an object"
-            });
+    const authToken = await loginUserService(input);
 
-            return;
-        }
-
-        const {
-            email,
-            password
-        } = body;
-
-        if (
-            typeof email !== "string"
-            || typeof password !== "string"
-        ) {
-            response.status(400).json({
-                error: "Email and password are required"
-            });
-
-            return;
-        }
-
-        const authToken = await loginUserService({
-            email,
-            password
-        });
-
-        response.status(200).json(authToken);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(authToken);
 }

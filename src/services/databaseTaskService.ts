@@ -1,8 +1,15 @@
-import { AppError } from "../errors/AppError.js";
+import {
+    BadRequestError,
+    NotFoundError
+} from "../errors/AppError.js";
 
 import {
+    findUserById
+} from "../repositories/userRepository.js";
+import {
+    assertCanManageProject,
     findProjectById
-} from "../repositories/projectRepository.js";
+} from "./projectService.js";
 
 import {
     createTaskForProject as createTaskForProjectRepository,
@@ -15,102 +22,50 @@ import {
 import type {
     CreateDatabaseTaskInput,
     DatabaseTask,
-    DatabaseTaskStatus,
     UpdateDatabaseTaskInput
 } from "../models/databaseTask.js";
+import type { AuthenticatedUser } from "../models/user.js";
 
 
 
-function isDatabaseTaskStatus(
-    value: unknown
-): value is DatabaseTaskStatus {
-    return value === "todo"
-        || value === "in-progress"
-        || value === "done";
+async function assertAssigneeExists(
+    assignedTo: number | null | undefined
+): Promise<void> {
+    if (assignedTo === undefined || assignedTo === null) {
+        return;
+    }
+
+    if (!await findUserById(assignedTo)) {
+        throw new BadRequestError("Assigned user does not exist");
+    }
+}
+
+async function findManageableTask(
+    taskId: number,
+    actor: AuthenticatedUser
+): Promise<DatabaseTask> {
+    const task = await findTaskById(taskId);
+    const project = await findProjectById(task.projectId);
+
+    assertCanManageProject(project, actor);
+
+    return task;
 }
 
 
 
 export async function createTaskForProject(
     input: CreateDatabaseTaskInput,
-    projectId: number
+    projectId: number,
+    actor: AuthenticatedUser
 ): Promise<DatabaseTask> {
-    if (!Number.isInteger(projectId) || projectId <= 0) {
-        throw new AppError(
-            400,
-            "Project ID must be a positive integer"
-        );
-    }
-
     const project = await findProjectById(projectId);
 
-    if (!project) {
-        throw new AppError(
-            404,
-            "Project not found"
-        );
-    }
+    assertCanManageProject(project, actor);
 
-    if (typeof input.title !== "string") {
-    throw new AppError(
-        400,
-        "Task title is required"
-    );
-}
+    await assertAssigneeExists(input.assignedTo);
 
-    const title = input.title.trim();
-
-    if (title.length === 0) {
-        throw new AppError(
-            400,
-            "Task title is required"
-        );
-    }
-
-    if (
-        input.description !== undefined
-        && input.description !== null
-        && typeof input.description !== "string"
-    ) {
-        throw new AppError(
-            400,
-            "Task description must be a string or null"
-        );
-    }
-
-    if (
-        input.status !== undefined
-        && !isDatabaseTaskStatus(input.status)
-    ) {
-        throw new AppError(
-            400,
-            "Invalid task status"
-        );
-    }
-
-    if (
-        input.assignedTo !== undefined
-        && input.assignedTo !== null
-        && (
-            !Number.isInteger(input.assignedTo)
-            || input.assignedTo <= 0
-        )
-    ) {
-        throw new AppError(
-            400,
-            "Assigned user ID must be a positive integer or null"
-        );
-    }
-
-    return createTaskForProjectRepository(
-        {
-            title,
-            description: input.description ?? null,
-            status: input.status,
-            assignedTo: input.assignedTo ?? null
-        },
-        projectId
-    );
+    return createTaskForProjectRepository(input, projectId);
 }
 
 
@@ -118,21 +73,7 @@ export async function createTaskForProject(
 export async function listTasksForProject(
     projectId: number
 ): Promise<DatabaseTask[]> {
-    if (!Number.isInteger(projectId) || projectId <= 0) {
-        throw new AppError(
-            400,
-            "Project ID must be a positive integer"
-        );
-    }
-
-    const project = await findProjectById(projectId);
-
-    if (!project) {
-        throw new AppError(
-            404,
-            "Project not found"
-        );
-    }
+    await findProjectById(projectId);
 
     return listTasksForProjectRepository(projectId);
 }
@@ -141,121 +82,46 @@ export async function listTasksForProject(
 
 export async function findTaskById(
     taskId: number
-): Promise<DatabaseTask | null> {
-    if (!Number.isInteger(taskId) || taskId <= 0) {
-        throw new AppError(
-            400,
-            "Task ID must be a positive integer"
-        );
+): Promise<DatabaseTask> {
+    const task = await findTaskByIdRepository(taskId);
+
+    if (!task) {
+        throw new NotFoundError("Task not found");
     }
 
-    return findTaskByIdRepository(taskId);
+    return task;
 }
 
 
 
 export async function updateTask(
     taskId: number,
-    input: UpdateDatabaseTaskInput
-): Promise<DatabaseTask | null> {
-    if (!Number.isInteger(taskId) || taskId <= 0) {
-        throw new AppError(
-            400,
-            "Task ID must be a positive integer"
-        );
+    input: UpdateDatabaseTaskInput,
+    actor: AuthenticatedUser
+): Promise<DatabaseTask> {
+    await findManageableTask(taskId, actor);
+    await assertAssigneeExists(input.assignedTo);
+
+    const task = await updateTaskRepository(taskId, input);
+
+    if (!task) {
+        throw new NotFoundError("Task not found");
     }
 
-    const updates: UpdateDatabaseTaskInput = {};
-
-    if (Object.prototype.hasOwnProperty.call(input, "title")) {
-        if (typeof input.title !== "string") {
-            throw new AppError(
-                400,
-                "Task title must be a string"
-            );
-        }
-
-        const title = input.title.trim();
-
-        if (title.length === 0) {
-            throw new AppError(
-                400,
-                "Task title cannot be empty"
-            );
-        }
-
-        updates.title = title;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(input, "description")) {
-        if (
-            input.description !== null
-            && typeof input.description !== "string"
-        ) {
-            throw new AppError(
-                400,
-                "Task description must be a string or null"
-            );
-        }
-
-        updates.description = input.description;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(input, "status")) {
-        if (!isDatabaseTaskStatus(input.status)) {
-            throw new AppError(
-                400,
-                "Invalid task status"
-            );
-        }
-
-        updates.status = input.status;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(input, "assignedTo")) {
-    if (
-        input.assignedTo !== undefined
-        && input.assignedTo !== null
-        && (
-            !Number.isInteger(input.assignedTo)
-            || input.assignedTo <= 0
-        )
-    ) {
-        throw new AppError(
-            400,
-            "Assigned user ID must be a positive integer or null"
-        );
-    }
-
-    updates.assignedTo = input.assignedTo;
+    return task;
 }
-
-    if (Object.keys(updates).length === 0) {
-        throw new AppError(
-            400,
-            "At least one task field is required"
-        );
-    }
-
-    return updateTaskRepository(taskId, updates);
-}
-
-
 
 
 
 export async function deleteTask(
-    taskId: number
-): Promise<DatabaseTask | null> {
-    if (!Number.isInteger(taskId) || taskId <= 0) {
-        throw new AppError(
-            400,
-            "Task ID must be a positive integer"
-        );
+    taskId: number,
+    actor: AuthenticatedUser
+): Promise<void> {
+    await findManageableTask(taskId, actor);
+
+    const task = await deleteTaskRepository(taskId);
+
+    if (!task) {
+        throw new NotFoundError("Task not found");
     }
-
-    return deleteTaskRepository(taskId);
 }
-
-
-

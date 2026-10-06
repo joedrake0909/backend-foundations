@@ -102,3 +102,42 @@ export async function createUser(
 
     return mapRowToUser(row);
 }
+
+
+
+export async function listUsers(): Promise<User[]> {
+    const result = await pool.query<UserRow>(
+        `
+        SELECT id, name, email, role, created_at
+        FROM users
+        ORDER BY id
+        `
+    );
+
+    return result.rows.map(mapRowToUser);
+}
+
+
+
+export async function updateUserRole(
+    id: number,
+    role: UserRole
+): Promise<User | null> {
+    const result = await pool.query<UserRow>(
+        `
+        UPDATE users
+        SET role = $1
+        WHERE id = $2
+        RETURNING id, name, email, role, created_at
+        `,
+        [role, id]
+    );
+
+    const row = result.rows[0];
+
+    if (!row) {
+        return null;
+    }
+
+    return mapRowToUser(row);
+}

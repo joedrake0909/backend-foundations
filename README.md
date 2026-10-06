@@ -1,5 +1,105 @@
 # Backend Foundations
 
+A Task / Project Management REST API built step by step during the backend internship. Users register and log in, own projects, and manage the tasks inside their projects. PostgreSQL is the source of truth; access is controlled with JWT authentication, role and ownership authorization, and request validation.
+
+The sections after this overview record each training day (Days 1-7) in order.
+
+## Technologies
+
+| Area | Tool |
+| --- | --- |
+| Language | TypeScript (compiled with `tsc`, run in development with `tsx`) |
+| Runtime / framework | Node.js, Express 5 |
+| Database | PostgreSQL with the `pg` driver (connection pool, parameterized queries) |
+| Passwords | `bcryptjs` (bcrypt hashes, cost 10) |
+| Tokens | `jsonwebtoken` (HS256 JWTs) |
+| Validation | `zod` |
+| Configuration | `dotenv` |
+
+## Prerequisites
+
+- Node.js 20 or newer and npm
+- PostgreSQL with `createdb` and `psql` on the PATH (the training setup uses port `5433`)
+
+## Setup and run
+
+```bash
+npm install
+cp .env.example .env          # then fill in real values (see below)
+
+createdb -h localhost -p 5433 -U postgres backend_internship
+psql -h localhost -p 5433 -U postgres -d backend_internship -f database/schema.sql
+psql -h localhost -p 5433 -U postgres -d backend_internship -f database/seed.sql
+
+npm run dev                   # development server with reload
+npm run build && npm start    # compiled build
+```
+
+### Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `PORT` | HTTP port (default `3000`) |
+| `DATABASE_URL` | `postgresql://user:password@host:port/backend_internship` |
+| `JWT_SECRET` | Token signing key; at least 32 random characters |
+| `JWT_EXPIRES_IN` | Token lifetime such as `1h` (default) or `3600` |
+
+`.env` is git-ignored. `.env.example` lists the names with placeholder values only.
+
+### Creating the first admin
+
+Registration always creates a normal `user`, and the seed users have placeholder password hashes, so they cannot log in. To get an admin, register normally and then promote that account from the server:
+
+```bash
+npm run admin:promote -- you@example.com
+```
+
+After that, the admin can promote or demote others with `PATCH /admin/users/:id/role`.
+
+## API summary
+
+All request and response bodies are JSON. "Owner" means the project's `owner_id` matches the logged-in user.
+
+| Method | Endpoint | Who may call it | Success |
+| --- | --- | --- | --- |
+| GET | `/health` | anyone | 200 |
+| POST | `/auth/register` | anyone | 201 |
+| POST | `/auth/login` | anyone | 200 |
+| GET | `/users/me` | logged in | 200 |
+| GET | `/projects` | logged in | 200 |
+| GET | `/projects/:id` | logged in | 200 |
+| POST | `/projects` | logged in (becomes the owner) | 201 |
+| PATCH | `/projects/:id` | owner or admin | 200 |
+| DELETE | `/projects/:id` | owner or admin | 204 |
+| GET | `/projects/:id/tasks` | logged in | 200 |
+| POST | `/projects/:id/tasks` | project owner or admin | 201 |
+| PATCH | `/tasks/:id` | owner of the task's project, or admin | 200 |
+| DELETE | `/tasks/:id` | owner of the task's project, or admin | 204 |
+| GET | `/admin/users` | admin only | 200 |
+| PATCH | `/admin/users/:id/role` | admin only | 200 |
+
+Error status codes: `400` invalid input, `401` missing/invalid login, `403` logged in but not allowed, `404` not found, `409` duplicate email, `500` unexpected error. Every error body is `{ "error": "..." }`; validation errors also include `details`.
+
+## How it works (short version)
+
+- **Request flow:** route → middleware (`authenticate`, `requireRole`) → controller (Zod validation, HTTP status) → service (business rules, ownership) → repository (parameterized SQL) → PostgreSQL. Every error goes to the single `errorHandler`.
+- **Authentication:** passwords are stored only as bcrypt hashes. Login returns a signed JWT that expires; protected routes require `Authorization: Bearer <token>`. Details are in the Day 6 section.
+- **Authorization:** the user's ID and role come from the verified token plus a database lookup, never from the request body. Owners manage their own projects and tasks; admins can manage everything and use `/admin`. Details are in the Day 7 section.
+- **Validation:** Zod schemas reject bad input with `400` before any service or SQL runs.
+
+## How to test
+
+See "How to test" in the Day 6 section and "Day 7 test evidence" in the Day 7 section. In short: register, log in, keep the token, then call the endpoints with `-H "Authorization: Bearer $TOKEN"` and try both permitted and forbidden actions.
+
+## What I learned in Days 4-7
+
+- **Day 4:** PostgreSQL rather than an in-memory array is the source of truth. Primary keys identify rows, foreign keys link them (with `CASCADE` / `SET NULL` deciding what happens on delete), and indexes should follow real query patterns.
+- **Day 5:** a backend is easier to reason about in layers. Controllers speak HTTP, services make decisions, repositories speak SQL, and `$1` placeholders keep user input from ever becoming SQL.
+- **Day 6:** passwords are hashed, not encrypted. The server re-hashes the attempt and compares; it never recovers a password. A JWT is readable by anyone; only its signature makes it trustworthy, so the secret lives in configuration and the token expires.
+- **Day 7:** authentication (who you are, 401) and authorization (what you may do, 403) are separate steps. TypeScript types don't protect a running server from bad input, so runtime validation is needed. Errors should be handled in one place, so clients get consistent, safe messages while the details stay in the server log.
+
+---
+
 ## Day 1 - JavaScript Backend Foundations
 
 Day 1 introduces CommonJS modules, in-memory data, service functions, and basic asynchronous JavaScript with Promises and `async`/`await`.
@@ -769,3 +869,182 @@ Regression: `GET /projects`, `/projects/1`, `/projects/1/tasks` → `200`, and `
 - **What a client can see in a JWT:** the header and payload, which are only base64url-encoded. Only the signature depends on the secret.
 - **Why the secret is configuration:** anyone who has it can mint tokens for any user or role. It has to stay out of Git and differ between environments.
 - **Why login errors are generic:** saying "no such email" turns login into a tool for discovering which accounts exist.
+
+
+## Phase 2 - Day 7 Authorization, Validation and Error Handling
+
+Day 6 answered "who are you?". Day 7 answers "what may you do?", rejects bad input before it reaches the database, and makes every error response predictable and safe.
+
+### Authorization matrix
+
+| Route | Login required | Allowed | Denied with |
+| --- | --- | --- | --- |
+| `POST /auth/register`, `POST /auth/login` | no | anyone | n/a |
+| `GET /users/me` | yes | any logged-in user (only their own record) | 401 |
+| `GET /projects`, `GET /projects/:id`, `GET /projects/:id/tasks` | yes | any logged-in user | 401 |
+| `POST /projects` | yes | any logged-in user; `owner_id` is set from the token | 401 |
+| `PATCH` / `DELETE /projects/:id` | yes | project owner or admin | 401 / 403 |
+| `POST /projects/:id/tasks` | yes | project owner or admin | 401 / 403 |
+| `PATCH` / `DELETE /tasks/:id` | yes | owner of the task's project, or admin | 401 / 403 |
+| `GET /admin/users` | yes | admin only | 401 / 403 |
+| `PATCH /admin/users/:id/role` | yes | admin only (not on their own account) | 401 / 403 / 400 |
+
+**401 vs 403 vs 404 policy:**
+- `401`: no valid identity (no token, bad token, expired token, or the user was deleted).
+- `404`: the project or task does not exist. This is checked before ownership.
+- `403`: the record exists, but the caller is neither its owner nor an admin.
+
+Because every logged-in user can already read all projects, returning 403 does not reveal anything they could not already see, so this policy is applied consistently.
+
+### How authorization is enforced
+
+- **`authenticate` middleware:** verifies the JWT, then loads the user from the database and sets `request.user = { id, role }`. Taking the role from the database rather than trusting the token means a demotion or a deleted account takes effect on the next request, not when the token expires. This was tested: a promoted user passed the admin check, and after being demoted the same token got 403.
+- **`requireRole("admin")` middleware:** guards the whole `/admin` router.
+- **Ownership checks live in the services** (`assertCanManageProject`). They read `projects.owner_id` from the database and compare it with `request.user.id`. Task operations first load the task, then its project, then check that project's owner.
+- **The client never supplies identity.**
+  - `POST /projects` takes its owner from the token; the old Day 5 `temporaryOwnerId = 1` is gone.
+  - Request bodies are strict, so `ownerId`, `projectId`, `role` or any other unknown field is rejected with 400 instead of being silently ignored.
+- **Admin bootstrap:** registration can never create an admin. The first admin is promoted on the server with `npm run admin:promote -- <email>`. Admins cannot change their own role, so the last admin cannot lock everyone out.
+- **The old in-memory `/tasks` router is no longer mounted.** Its `POST /tasks` was an unauthenticated write path that bypassed PostgreSQL. `src/routes/taskRoutes.ts`, `src/controllers/taskController.ts`, `src/services/taskService.ts` and `src/models/task.ts` are now unused and can be deleted.
+
+### Validation
+
+[Zod](https://zod.dev) schemas live in `src/validators/`. Controllers call `schema.parse(...)` as their first step, so invalid input never reaches a service or the database.
+
+| Schema | Rules |
+| --- | --- |
+| `registerSchema` | `name` 1-100 chars (trimmed); `email` valid, at most 255 chars, trimmed and lowercased; `password` 8+ chars and at most 72 bytes |
+| `loginSchema` | `email` and `password` present strings (format is not checked, so login gives no hint about which accounts exist) |
+| `createProjectSchema` / `updateProjectSchema` | `name` 1-150 chars; `description` string up to 2000 chars or `null`; an update needs at least one field |
+| `createTaskSchema` / `updateTaskSchema` | `title` 1-200 chars; `status` one of `todo`, `in-progress`, `done`; `assignedTo` positive integer or `null`; an update needs at least one field |
+| `updateRoleSchema` | `role` is `user` or `admin` |
+| `idParamSchema` | `:id` digits only, at least 1, and at most 2147483647 (the PostgreSQL `INTEGER` maximum) |
+
+Every body schema is **strict**: unknown fields are a 400.
+
+The limits match the column sizes in `schema.sql`, so the database never has to reject a value that passed validation.
+
+**Why TypeScript types are not enough:** an `interface` disappears when the code compiles. At runtime an HTTP client can send any JSON (a number instead of a string, an extra `ownerId`, a status of `"waiting"`), and TypeScript cannot stop it. Zod checks the actual values while the server is running and gives a typed result.
+
+Validation errors share one shape:
+
+```json
+{
+  "error": "Validation failed",
+  "details": [
+    { "field": "email", "message": "Email must be a valid email address" },
+    { "field": "password", "message": "Password must be at least 8 characters" }
+  ]
+}
+```
+
+### Centralized error handling
+
+```text
+controller / middleware / service throws
+        │   (Express 5 forwards errors from async handlers automatically,
+        │    so controllers no longer need try/catch + next(error))
+        ▼
+unmatched route ──► notFound ──► NotFoundError
+        ▼
+errorHandler (last middleware)
+  ZodError                       → 400 { error: "Validation failed", details }
+  invalid JSON body              → 400 { error: "Request body is not valid JSON" }
+  AppError subclasses            → their status + message (401 also sets WWW-Authenticate)
+  PostgreSQL error with known code → safe 400/409 message (src/errors/databaseErrors.ts)
+  anything else                  → log method, URL and stack on the server
+                                   → 500 { error: "Internal server error" }
+```
+
+- `src/errors/AppError.ts` has named errors: `BadRequestError` (400), `UnauthorizedError` (401), `ForbiddenError` (403), `NotFoundError` (404) and `ConflictError` (409). Services throw them instead of returning `null` for controllers to translate.
+- `src/errors/databaseErrors.ts` maps PostgreSQL codes. For example, `23505` unique violation → 409 and `23503` foreign-key violation → 400. Raw PostgreSQL messages (which can include table names, constraint names and values) never reach the client.
+- **Where 409 is decided:** `authService.registerUser` translates a duplicate email to `409 Email is already registered`, both from its lookup and from a `23505` raised by a race. The `errorHandler` mapping is only a safety net.
+- **What is logged:** for a 500, the server logs the method, URL and full error. It never logs request headers or bodies, because they can contain tokens and passwords. Stack traces never appear in a response, whatever the environment.
+
+### Day 7 test evidence
+
+Run against local PostgreSQL with three registered accounts: an owner, another user and an admin (promoted with `npm run admin:promote`). `npm run build` passes.
+
+Successful requests:
+
+| # | Request | Status |
+| --- | --- | --- |
+| S1 | Owner creates a project (owner set from the token) | 201 |
+| S2 | Another logged-in user reads that project | 200 |
+| S3 | Owner creates a task in it | 201 |
+| S4 | Owner updates the task | 200 |
+| S5 | Admin updates the owner's task | 200 |
+| S6 | Owner deletes the task | 204 |
+| S7 | Admin deletes the owner's project | 204 |
+| A1 | Admin `GET /admin/users` | 200 |
+| A2 | Admin promotes another user to admin | 200 |
+| A3 | That user's existing token now passes the admin check | 200 |
+| A4/A5 | Admin demotes them again; the same token is now refused | 200 / 403 |
+
+Negative scenarios:
+
+| # | Scenario | Status | Response |
+| --- | --- | --- | --- |
+| N1 | No token on `POST /projects` | 401 | `Authentication required` |
+| N2 | `Authorization: Basic abc` | 401 | `Authorization header must be in the format: Bearer <token>` |
+| N3 | Invalid JWT | 401 | `Invalid token` |
+| N4 | Expired JWT | 401 | `Token has expired` |
+| N5 | Duplicate email | 409 | `Email is already registered` |
+| N6 | Empty name, bad email, short password | 400 | Three `details` entries, one per field |
+| N7 | Unknown project `GET /projects/999999` | 404 | `Project not found` |
+| N8 | Unknown task `PATCH /tasks/999999` | 404 | `Task not found` |
+| N9 | Task status `blocked` | 400 | `Status must be one of: todo, in-progress, done` |
+| N10 | Project without `name` | 400 | `Project name is required` |
+| N11 | Task without `title` | 400 | `Task title is required` |
+| N12 | User edits another user's project | 403 | `You do not have permission to manage this project` |
+| N13 | User deletes a task in another user's project | 403 | same |
+| N14 | Normal user calls `GET /admin/users` | 403 | `You do not have permission to perform this action` |
+| N15 | Assign a task to user `999999` (invalid relationship) | 400 | `Assigned user does not exist` |
+| N16 | Create a task in project `999999` | 404 | `Project not found` |
+| N17 | `ownerId` in the project body | 400 | `Unknown field(s): ownerId` |
+| N18 | Malformed JSON body | 400 | `Request body is not valid JSON` |
+| N19 | Unknown route `GET /does-not-exist` | 404 | `Route GET /does-not-exist not found` (JSON, not Express's HTML page) |
+| N20 | Old in-memory `POST /tasks` | 404 | `Route POST /tasks not found` |
+| N21 | Token signed with a different secret, claiming admin | 401 | `Invalid token` |
+| N22 | Database unreachable (server started with a wrong `DATABASE_URL`) | 500 | `Internal server error` only; `ECONNREFUSED` and the stack appear only in the server log |
+
+More validation checks from the same run:
+- `abc`, `1.5`, `0` and `99999999999` as an ID → 400.
+- `assignedTo: "2"` (a string) → 400.
+- `projectId` in a task update → 400.
+- `role` in the registration body → 400.
+- An array as the body → 400.
+- An admin changing their own role → 400.
+- A role change for an unknown user → 404.
+
+Database error mapping (`mapDatabaseError`): `23505` → 409, `23503` → 400, `22P02` → 400, and an unknown code → 500. The PostgreSQL `detail` text is never included in the response.
+
+### Behaviour changes since Days 5-6
+
+- All project and task routes now require a token. The unauthenticated `curl` examples in the Day 5 notes need `-H "Authorization: Bearer $TOKEN"` added.
+- `POST /auth/register` with `"role":"admin"` used to be accepted and the role ignored (Day 6). It is now rejected with 400 because bodies are strict.
+- Missing records are reported by the services as `NotFoundError`. The responses (`404 Project not found` / `Task not found`) are unchanged.
+
+### Files added or changed
+
+| File | Responsibility |
+| --- | --- |
+| `src/middleware/authenticate.ts` | Verify the token and load the current role from the database; `currentUser(request)` helper |
+| `src/middleware/requireRole.ts` | Role guard (`requireRole("admin")`) |
+| `src/middleware/notFound.ts` | JSON 404 for unmatched routes |
+| `src/middleware/errorHandler.ts` | The single place that turns errors into responses |
+| `src/errors/AppError.ts` | Named HTTP error classes |
+| `src/errors/databaseErrors.ts` | PostgreSQL error code → safe API error |
+| `src/validators/*.ts` | Zod schemas for auth, projects, tasks, roles and ID params |
+| `src/services/projectService.ts`, `databaseTaskService.ts` | Ownership and existence rules |
+| `src/services/userService.ts`, `src/repositories/userRepository.ts` | User listing and role changes |
+| `src/controllers/adminController.ts`, `src/routes/adminRoutes.ts` | Admin-only endpoints |
+| `src/scripts/promoteAdmin.ts` | `npm run admin:promote -- <email>` |
+
+### Day 7 teach-back
+
+- **Why an interface is not validation:** types are erased at compile time; requests arrive at runtime with whatever the client chose to send.
+- **Why `owner_id` from the client is untrusted:** anyone can type any number into a request body. The verified token is the only trustworthy source of "who is asking".
+- **401 vs 403:** 401 means I can't confirm who you are; 403 means I know who you are and the answer is no.
+- **Where duplicate email becomes 409:** in the registration service, which knows what the conflict means. `errorHandler` has a generic fallback.
+- **Why hide stack traces and SQL errors:** they reveal file paths, table and constraint names, and sometimes data, which helps an attacker and gives the client nothing it can act on.

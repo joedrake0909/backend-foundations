@@ -4,21 +4,20 @@ import type {
     Response
 } from "express";
 
-import { AppError } from "../errors/AppError.js";
+import { UnauthorizedError } from "../errors/AppError.js";
+import type { AuthenticatedUser } from "../models/user.js";
 import { verifyAccessToken } from "../services/authService.js";
+import { getCurrentUser } from "../services/userService.js";
 
-function authenticate(
+async function authenticate(
     request: Request,
-    response: Response,
+    _response: Response,
     next: NextFunction
-): void {
+): Promise<void> {
     const header = request.headers.authorization;
 
     if (!header) {
-        response.set("WWW-Authenticate", "Bearer");
-        next(new AppError(401, "Authentication required"));
-
-        return;
+        throw new UnauthorizedError();
     }
 
     const [scheme, token, ...rest] = header.split(" ");
@@ -28,25 +27,30 @@ function authenticate(
         || !token
         || rest.length > 0
     ) {
-        response.set("WWW-Authenticate", "Bearer");
-        next(new AppError(
-            401,
+        throw new UnauthorizedError(
             "Authorization header must be in the format: Bearer <token>"
-        ));
-
-        return;
+        );
     }
 
-    try {
-        request.user = verifyAccessToken(token);
-    } catch (error) {
-        response.set("WWW-Authenticate", "Bearer error=\"invalid_token\"");
-        next(error);
+    const { id } = verifyAccessToken(token);
 
-        return;
-    }
+    // Role comes from the database, so a demotion applies immediately.
+    const user = await getCurrentUser(id);
+
+    request.user = {
+        id: user.id,
+        role: user.role
+    };
 
     next();
+}
+
+export function currentUser(request: Request): AuthenticatedUser {
+    if (!request.user) {
+        throw new UnauthorizedError();
+    }
+
+    return request.user;
 }
 
 export default authenticate;
