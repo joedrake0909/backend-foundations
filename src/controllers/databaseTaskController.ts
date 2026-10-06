@@ -4,6 +4,7 @@ import type {
     Response
 } from "express";
 
+import { currentUser } from "../middleware/authenticate.js";
 import {
     createTaskForProject as createTaskForProjectService,
     deleteTask as deleteTaskService,
@@ -131,7 +132,8 @@ export async function createTask(
 
         const task = await createTaskForProjectService(
             input,
-            projectId
+            projectId,
+            currentUser(request)
         );
 
         response.status(201).json(task);
@@ -263,7 +265,11 @@ export async function updateTask(
             updates.assignedTo = body.assignedTo;
         }
 
-        const task = await updateTaskService(taskId, updates);
+        const task = await updateTaskService(
+            taskId,
+            updates,
+            currentUser(request)
+        );
 
         if (!task) {
             response.status(404).json({
@@ -299,7 +305,10 @@ export async function deleteTask(
             return;
         }
 
-        const task = await deleteTaskService(taskId);
+        const task = await deleteTaskService(
+            taskId,
+            currentUser(request)
+        );
 
         if (!task) {
             response.status(404).json({

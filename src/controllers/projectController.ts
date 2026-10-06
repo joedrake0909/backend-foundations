@@ -4,6 +4,7 @@ import type {
     Response
 } from "express";
 
+import { currentUser } from "../middleware/authenticate.js";
 import {
     createProject as createProjectService,
     deleteProject as deleteProjectService,
@@ -80,11 +81,9 @@ export async function createProject(
             description
         };
 
-        const temporaryOwnerId = 1;
-
         const project = await createProjectService(
             input,
-            temporaryOwnerId
+            currentUser(request).id
         );
 
         response.status(201).json(project);
@@ -195,7 +194,8 @@ export async function updateProject(
 
         const project = await updateProjectService(
             projectId,
-            updates
+            updates,
+            currentUser(request)
         );
 
         if (!project) {
@@ -229,7 +229,10 @@ export async function deleteProject(
             return;
         }
 
-        const project = await deleteProjectService(projectId);
+        const project = await deleteProjectService(
+            projectId,
+            currentUser(request)
+        );
 
         if (!project) {
             response.status(404).json({

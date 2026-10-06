@@ -3,11 +3,11 @@ import express from "express";
 import requestLogger from "./middleware/requestLogger.js";
 import errorHandler from "./middleware/errorHandler.js";
 
+import adminRouter from "./routes/adminRoutes.js";
 import authRouter from "./routes/authRoutes.js";
 import projectRouter from "./routes/projectRoutes.js";
 import databaseTaskRouter from "./routes/databaseTaskRoutes.js";
 import databaseTaskByIdRouter from "./routes/databaseTaskByIdRoutes.js";
-import taskRouter from "./routes/taskRoutes.js";
 import userRouter from "./routes/userRoutes.js";
 
 const app = express();
@@ -23,6 +23,7 @@ app.get("/health", (_request, response) => {
 
 app.use("/auth", authRouter);
 app.use("/users", userRouter);
+app.use("/admin", adminRouter);
 
 app.use("/projects", projectRouter);
 
@@ -35,8 +36,6 @@ app.use(
     "/tasks",
     databaseTaskByIdRouter
 );
-
-app.use("/tasks", taskRouter);
 
 app.use(errorHandler);
 

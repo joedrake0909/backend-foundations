@@ -7,9 +7,12 @@ import {
     listProjects,
     updateProject
 } from "../controllers/projectController.js";
+import authenticate from "../middleware/authenticate.js";
 
 
 const projectRouter = Router();
+
+projectRouter.use(authenticate);
 
 projectRouter.get("/", listProjects);
 projectRouter.post("/", createProject);

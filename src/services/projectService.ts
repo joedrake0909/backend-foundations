@@ -13,6 +13,34 @@ import type {
     Project,
     UpdateProjectInput
 } from "../models/project.js";
+import type { AuthenticatedUser } from "../models/user.js";
+
+export function assertCanManageProject(
+    project: Project,
+    actor: AuthenticatedUser
+): void {
+    if (actor.role !== "admin" && project.ownerId !== actor.id) {
+        throw new AppError(
+            403,
+            "You do not have permission to manage this project"
+        );
+    }
+}
+
+async function findManageableProject(
+    id: number,
+    actor: AuthenticatedUser
+): Promise<Project | null> {
+    const project = await findProjectByIdRepository(id);
+
+    if (!project) {
+        return null;
+    }
+
+    assertCanManageProject(project, actor);
+
+    return project;
+}
 
 export async function createProject(
     input: CreateProjectInput,
@@ -48,7 +76,8 @@ export async function findProjectById(
 
 export async function updateProject(
     id: number,
-    input: UpdateProjectInput
+    input: UpdateProjectInput,
+    actor: AuthenticatedUser
 ): Promise<Project | null> {
     const updates: UpdateProjectInput = {};
 
@@ -70,13 +99,22 @@ export async function updateProject(
         throw new AppError(400, "At least one project field is required");
     }
 
+    if (!await findManageableProject(id, actor)) {
+        return null;
+    }
+
     return updateProjectRepository(id, updates);
 }
 
 
 export async function deleteProject(
-    id: number
+    id: number,
+    actor: AuthenticatedUser
 ): Promise<Project | null> {
+    if (!await findManageableProject(id, actor)) {
+        return null;
+    }
+
     return deleteProjectRepository(id);
 }
 
