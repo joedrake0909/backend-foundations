@@ -3,6 +3,7 @@ import express from "express";
 import requestLogger from "./middleware/requestLogger.js";
 import errorHandler from "./middleware/errorHandler.js";
 
+import authRouter from "./routes/authRoutes.js";
 import projectRouter from "./routes/projectRoutes.js";
 import databaseTaskRouter from "./routes/databaseTaskRoutes.js";
 import databaseTaskByIdRouter from "./routes/databaseTaskByIdRoutes.js";
@@ -18,6 +19,8 @@ app.get("/health", (_request, response) => {
         status: "ok"
     });
 });
+
+app.use("/auth", authRouter);
 
 app.use("/projects", projectRouter);
 
