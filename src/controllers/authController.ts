@@ -5,6 +5,7 @@ import type {
 } from "express";
 
 import {
+    loginUser as loginUserService,
     registerUser as registerUserService
 } from "../services/authService.js";
 
@@ -53,6 +54,55 @@ export async function register(
         });
 
         response.status(201).json(user);
+    } catch (error) {
+        next(error);
+    }
+}
+
+
+
+export async function login(
+    request: Request,
+    response: Response,
+    next: NextFunction
+): Promise<void> {
+    try {
+        const body = request.body as Record<string, unknown>;
+
+        if (
+            typeof body !== "object"
+            || body === null
+            || Array.isArray(body)
+        ) {
+            response.status(400).json({
+                error: "Request body must be an object"
+            });
+
+            return;
+        }
+
+        const {
+            email,
+            password
+        } = body;
+
+        if (
+            typeof email !== "string"
+            || typeof password !== "string"
+        ) {
+            response.status(400).json({
+                error: "Email and password are required"
+            });
+
+            return;
+        }
+
+        const authToken = await loginUserService({
+            email,
+            password
+        });
+
+        response.status(200).json(authToken);
     } catch (error) {
         next(error);
     }

@@ -1,5 +1,11 @@
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
 
+import {
+    JWT_ALGORITHM,
+    JWT_EXPIRES_IN,
+    JWT_SECRET
+} from "../config/auth.js";
 import { AppError } from "../errors/AppError.js";
 
 import {
@@ -8,6 +14,8 @@ import {
 } from "../repositories/userRepository.js";
 
 import type {
+    AuthToken,
+    LoginInput,
     RegisterUserInput,
     User
 } from "../models/user.js";
@@ -24,6 +32,18 @@ const MAX_PASSWORD_BYTES = 72;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const UNIQUE_VIOLATION = "23505";
+
+// One message for every login failure, so a caller cannot tell whether
+// the email exists or only the password was wrong.
+const INVALID_CREDENTIALS = "Invalid email or password";
+
+// Compared against when the email is unknown, so an unknown email takes
+// about as long as a wrong password and response time does not reveal
+// which accounts exist.
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
+    "not-a-real-password",
+    PASSWORD_SALT_ROUNDS
+);
 
 
 
@@ -96,4 +116,42 @@ export async function registerUser(
 
         throw error;
     }
+}
+
+
+
+export async function loginUser(
+    input: LoginInput
+): Promise<AuthToken> {
+    const email = normalizeEmail(input.email);
+
+    const user = await findUserByEmailRepository(email);
+
+    const passwordMatches = await bcrypt.compare(
+        input.password,
+        user?.passwordHash ?? DUMMY_PASSWORD_HASH
+    );
+
+    if (!user || !passwordMatches) {
+        throw new AppError(401, INVALID_CREDENTIALS);
+    }
+
+    // The payload is only base64url-encoded, not encrypted: anyone holding
+    // the token can read it. It carries just the identity (sub) and role
+    // needed later, never the password or hash.
+    const token = jwt.sign(
+        { role: user.role },
+        JWT_SECRET,
+        {
+            subject: String(user.id),
+            expiresIn: JWT_EXPIRES_IN,
+            algorithm: JWT_ALGORITHM
+        }
+    );
+
+    return {
+        token,
+        tokenType: "Bearer",
+        expiresIn: JWT_EXPIRES_IN
+    };
 }

@@ -27,3 +27,14 @@ export interface CreateUserInput {
     email: string;
     passwordHash: string;
 }
+
+export interface LoginInput {
+    email: string;
+    password: string;
+}
+
+export interface AuthToken {
+    token: string;
+    tokenType: "Bearer";
+    expiresIn: string | number;
+}
