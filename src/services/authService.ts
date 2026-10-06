@@ -21,26 +21,20 @@ import type {
     User
 } from "../models/user.js";
 
-// Cost factor for bcrypt. Each +1 doubles the hashing work, which slows
-// down offline guessing if the users table is ever leaked.
 const PASSWORD_SALT_ROUNDS = 10;
 
 const MIN_PASSWORD_LENGTH = 8;
 
-// bcrypt only uses the first 72 bytes of a password.
+// bcrypt ignores bytes after 72.
 const MAX_PASSWORD_BYTES = 72;
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const UNIQUE_VIOLATION = "23505";
 
-// One message for every login failure, so a caller cannot tell whether
-// the email exists or only the password was wrong.
 const INVALID_CREDENTIALS = "Invalid email or password";
 
-// Compared against when the email is unknown, so an unknown email takes
-// about as long as a wrong password and response time does not reveal
-// which accounts exist.
+// Keeps unknown-email logins as slow as wrong-password ones.
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(
     "not-a-real-password",
     PASSWORD_SALT_ROUNDS
@@ -101,16 +95,13 @@ export async function registerUser(
     );
 
     try {
-        // The role is never taken from the request; the database default
-        // ('user') applies, so nobody can register themselves as admin.
         return await createUserRepository({
             name,
             email,
             passwordHash
         });
     } catch (error) {
-        // Two simultaneous registrations can both pass the lookup above.
-        // The UNIQUE constraint still rejects the second one.
+        // Concurrent registration that slipped past the lookup.
         if (isUniqueViolation(error)) {
             throw new AppError(409, "Email is already registered");
         }
@@ -137,9 +128,7 @@ export async function loginUser(
         throw new AppError(401, INVALID_CREDENTIALS);
     }
 
-    // The payload is only base64url-encoded, not encrypted: anyone holding
-    // the token can read it. It carries just the identity (sub) and role
-    // needed later, never the password or hash.
+    // The payload is readable by anyone, so it holds no secrets.
     const token = jwt.sign(
         { role: user.role },
         JWT_SECRET,
@@ -165,8 +154,6 @@ export function verifyAccessToken(
     let payload: string | jwt.JwtPayload;
 
     try {
-        // verify checks the signature and the exp claim. Pinning the
-        // algorithm stops a token from choosing a weaker one (e.g. "none").
         payload = jwt.verify(token, JWT_SECRET, {
             algorithms: [JWT_ALGORITHM]
         });

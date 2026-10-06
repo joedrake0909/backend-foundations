@@ -7,9 +7,6 @@ import type {
 import { AppError } from "../errors/AppError.js";
 import { verifyAccessToken } from "../services/authService.js";
 
-// Expects "Authorization: Bearer <token>". On success it attaches the
-// verified identity as request.user; otherwise it passes a 401 on to
-// the error handler and the route handler never runs.
 function authenticate(
     request: Request,
     response: Response,

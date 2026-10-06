@@ -14,8 +14,6 @@ export async function getMe(
     next: NextFunction
 ): Promise<void> {
     try {
-        // The identity comes only from the verified token, never from
-        // the body, query string or a route parameter.
         if (!request.user) {
             response.status(401).json({
                 error: "Authentication required"

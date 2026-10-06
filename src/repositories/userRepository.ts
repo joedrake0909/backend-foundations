@@ -81,8 +81,6 @@ export async function findUserById(
 export async function createUser(
     input: CreateUserInput
 ): Promise<User> {
-    // RETURNING lists only safe columns, so the hash never leaves the
-    // database on this path.
     const result = await pool.query<UserRow>(
         `
         INSERT INTO users (name, email, password_hash)

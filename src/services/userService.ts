@@ -11,8 +11,6 @@ export async function getCurrentUser(
 ): Promise<User> {
     const user = await findUserByIdRepository(userId);
 
-    // The token can still be valid after its user has been deleted.
-    // That identity no longer exists, so treat it as unauthenticated.
     if (!user) {
         throw new AppError(401, "User account no longer exists");
     }

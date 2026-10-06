@@ -1,7 +1,5 @@
 export type UserRole = "user" | "admin";
 
-// Safe API shape. It deliberately has no password hash so it can be
-// returned in any response.
 export interface User {
     id: number;
     name: string;
@@ -10,8 +8,7 @@ export interface User {
     createdAt: string;
 }
 
-// Internal shape used only by the authentication service to verify a
-// password. It must never be sent in an API response.
+// Internal only: never return in a response.
 export interface UserWithPasswordHash extends User {
     passwordHash: string;
 }
@@ -33,8 +30,6 @@ export interface LoginInput {
     password: string;
 }
 
-// The identity proven by a verified JWT. Authentication middleware
-// attaches it to the request as request.user.
 export interface AuthenticatedUser {
     id: number;
     role: UserRole;
