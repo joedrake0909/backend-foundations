@@ -6,7 +6,10 @@ import {
     JWT_EXPIRES_IN,
     JWT_SECRET
 } from "../config/auth.js";
-import { AppError } from "../errors/AppError.js";
+import {
+    ConflictError,
+    UnauthorizedError
+} from "../errors/AppError.js";
 
 import {
     createUser as createUserRepository,
@@ -52,7 +55,7 @@ export async function registerUser(
     const existingUser = await findUserByEmailRepository(email);
 
     if (existingUser) {
-        throw new AppError(409, "Email is already registered");
+        throw new ConflictError("Email is already registered");
     }
 
     const passwordHash = await bcrypt.hash(
@@ -69,7 +72,7 @@ export async function registerUser(
     } catch (error) {
         // Concurrent registration that slipped past the lookup.
         if (isUniqueViolation(error)) {
-            throw new AppError(409, "Email is already registered");
+            throw new ConflictError("Email is already registered");
         }
 
         throw error;
@@ -89,7 +92,7 @@ export async function loginUser(
     );
 
     if (!user || !passwordMatches) {
-        throw new AppError(401, INVALID_CREDENTIALS);
+        throw new UnauthorizedError(INVALID_CREDENTIALS);
     }
 
     // The payload is readable by anyone, so it holds no secrets.
@@ -123,14 +126,14 @@ export function verifyAccessToken(
         });
     } catch (error) {
         if (error instanceof jwt.TokenExpiredError) {
-            throw new AppError(401, "Token has expired");
+            throw new UnauthorizedError("Token has expired");
         }
 
-        throw new AppError(401, "Invalid token");
+        throw new UnauthorizedError("Invalid token");
     }
 
     if (typeof payload === "string") {
-        throw new AppError(401, "Invalid token");
+        throw new UnauthorizedError("Invalid token");
     }
 
     const id = Number(payload.sub);
@@ -141,7 +144,7 @@ export function verifyAccessToken(
         || id <= 0
         || (role !== "user" && role !== "admin")
     ) {
-        throw new AppError(401, "Invalid token");
+        throw new UnauthorizedError("Invalid token");
     }
 
     return { id, role };

@@ -6,7 +6,10 @@ import {
     updateProject as updateProjectRepository
 } from "../repositories/projectRepository.js";
 
-import { AppError } from "../errors/AppError.js";
+import {
+    ForbiddenError,
+    NotFoundError
+} from "../errors/AppError.js";
 
 import type {
     CreateProjectInput,
@@ -20,8 +23,7 @@ export function assertCanManageProject(
     actor: AuthenticatedUser
 ): void {
     if (actor.role !== "admin" && project.ownerId !== actor.id) {
-        throw new AppError(
-            403,
+        throw new ForbiddenError(
             "You do not have permission to manage this project"
         );
     }
@@ -30,12 +32,8 @@ export function assertCanManageProject(
 async function findManageableProject(
     id: number,
     actor: AuthenticatedUser
-): Promise<Project | null> {
-    const project = await findProjectByIdRepository(id);
-
-    if (!project) {
-        return null;
-    }
+): Promise<Project> {
+    const project = await findProjectById(id);
 
     assertCanManageProject(project, actor);
 
@@ -57,8 +55,14 @@ export async function listProjects(): Promise<Project[]> {
 
 export async function findProjectById(
     id: number
-): Promise<Project | null> {
-    return findProjectByIdRepository(id);
+): Promise<Project> {
+    const project = await findProjectByIdRepository(id);
+
+    if (!project) {
+        throw new NotFoundError("Project not found");
+    }
+
+    return project;
 }
 
 
@@ -66,24 +70,28 @@ export async function updateProject(
     id: number,
     input: UpdateProjectInput,
     actor: AuthenticatedUser
-): Promise<Project | null> {
-    if (!await findManageableProject(id, actor)) {
-        return null;
+): Promise<Project> {
+    await findManageableProject(id, actor);
+
+    const project = await updateProjectRepository(id, input);
+
+    if (!project) {
+        throw new NotFoundError("Project not found");
     }
 
-    return updateProjectRepository(id, input);
+    return project;
 }
 
 
 export async function deleteProject(
     id: number,
     actor: AuthenticatedUser
-): Promise<Project | null> {
-    if (!await findManageableProject(id, actor)) {
-        return null;
+): Promise<void> {
+    await findManageableProject(id, actor);
+
+    const project = await deleteProjectRepository(id);
+
+    if (!project) {
+        throw new NotFoundError("Project not found");
     }
-
-    return deleteProjectRepository(id);
 }
-
-

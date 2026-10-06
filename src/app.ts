@@ -2,6 +2,7 @@ import express from "express";
 
 import requestLogger from "./middleware/requestLogger.js";
 import errorHandler from "./middleware/errorHandler.js";
+import notFound from "./middleware/notFound.js";
 
 import adminRouter from "./routes/adminRoutes.js";
 import authRouter from "./routes/authRoutes.js";
@@ -37,6 +38,7 @@ app.use(
     databaseTaskByIdRouter
 );
 
+app.use(notFound);
 app.use(errorHandler);
 
 export default app;

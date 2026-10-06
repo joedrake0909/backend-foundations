@@ -1,5 +1,4 @@
 import type {
-    NextFunction,
     Request,
     Response
 } from "express";
@@ -18,117 +17,65 @@ import {
     updateProjectSchema
 } from "../validators/projectValidators.js";
 
+// Express 5 forwards errors thrown in async handlers to errorHandler.
+
 export async function listProjects(
     _request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const projects = await listProjectsService();
+    const projects = await listProjectsService();
 
-        response.status(200).json(projects);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(projects);
 }
 
 export async function createProject(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const input = createProjectSchema.parse(request.body);
+    const input = createProjectSchema.parse(request.body);
 
-        const project = await createProjectService(
-            input,
-            currentUser(request).id
-        );
+    const project = await createProjectService(
+        input,
+        currentUser(request).id
+    );
 
-        response.status(201).json(project);
-    } catch (error) {
-        next(error);
-    }
+    response.status(201).json(project);
 }
-
 
 export async function getProjectById(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const { id } = idParamSchema.parse(request.params);
+    const { id } = idParamSchema.parse(request.params);
 
-        const project = await findProjectByIdService(id);
+    const project = await findProjectByIdService(id);
 
-        if (!project) {
-            response.status(404).json({
-                error: "Project not found"
-            });
-
-            return;
-        }
-
-        response.status(200).json(project);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(project);
 }
 
 export async function updateProject(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const { id } = idParamSchema.parse(request.params);
-        const updates = updateProjectSchema.parse(request.body);
+    const { id } = idParamSchema.parse(request.params);
+    const updates = updateProjectSchema.parse(request.body);
 
-        const project = await updateProjectService(
-            id,
-            updates,
-            currentUser(request)
-        );
+    const project = await updateProjectService(
+        id,
+        updates,
+        currentUser(request)
+    );
 
-        if (!project) {
-            response.status(404).json({
-                error: "Project not found"
-            });
-
-            return;
-        }
-
-        response.status(200).json(project);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(project);
 }
-
 
 export async function deleteProject(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const { id } = idParamSchema.parse(request.params);
+    const { id } = idParamSchema.parse(request.params);
 
-        const project = await deleteProjectService(
-            id,
-            currentUser(request)
-        );
+    await deleteProjectService(id, currentUser(request));
 
-        if (!project) {
-            response.status(404).json({
-                error: "Project not found"
-            });
-
-            return;
-        }
-
-        response.status(204).send();
-    } catch (error) {
-        next(error);
-    }
+    response.status(204).send();
 }

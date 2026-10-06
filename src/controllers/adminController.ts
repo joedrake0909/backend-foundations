@@ -1,5 +1,4 @@
 import type {
-    NextFunction,
     Request,
     Response
 } from "express";
@@ -14,35 +13,25 @@ import { updateRoleSchema } from "../validators/userValidators.js";
 
 export async function listUsers(
     _request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const users = await listUsersService();
+    const users = await listUsersService();
 
-        response.status(200).json(users);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(users);
 }
 
 export async function changeUserRole(
     request: Request,
-    response: Response,
-    next: NextFunction
+    response: Response
 ): Promise<void> {
-    try {
-        const { id } = idParamSchema.parse(request.params);
-        const { role } = updateRoleSchema.parse(request.body);
+    const { id } = idParamSchema.parse(request.params);
+    const { role } = updateRoleSchema.parse(request.body);
 
-        const user = await changeUserRoleService(
-            id,
-            role,
-            currentUser(request)
-        );
+    const user = await changeUserRoleService(
+        id,
+        role,
+        currentUser(request)
+    );
 
-        response.status(200).json(user);
-    } catch (error) {
-        next(error);
-    }
+    response.status(200).json(user);
 }

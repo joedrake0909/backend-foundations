@@ -1,12 +1,15 @@
-import { AppError } from "../errors/AppError.js";
-
 import {
-    findProjectById
-} from "../repositories/projectRepository.js";
+    BadRequestError,
+    NotFoundError
+} from "../errors/AppError.js";
+
 import {
     findUserById
 } from "../repositories/userRepository.js";
-import { assertCanManageProject } from "./projectService.js";
+import {
+    assertCanManageProject,
+    findProjectById
+} from "./projectService.js";
 
 import {
     createTaskForProject as createTaskForProjectRepository,
@@ -33,21 +36,20 @@ async function assertAssigneeExists(
     }
 
     if (!await findUserById(assignedTo)) {
-        throw new AppError(400, "Assigned user does not exist");
+        throw new BadRequestError("Assigned user does not exist");
     }
 }
 
-async function assertCanManageTask(
-    task: DatabaseTask,
+async function findManageableTask(
+    taskId: number,
     actor: AuthenticatedUser
-): Promise<void> {
+): Promise<DatabaseTask> {
+    const task = await findTaskById(taskId);
     const project = await findProjectById(task.projectId);
 
-    if (!project) {
-        throw new AppError(404, "Project not found");
-    }
-
     assertCanManageProject(project, actor);
+
+    return task;
 }
 
 
@@ -58,10 +60,6 @@ export async function createTaskForProject(
     actor: AuthenticatedUser
 ): Promise<DatabaseTask> {
     const project = await findProjectById(projectId);
-
-    if (!project) {
-        throw new AppError(404, "Project not found");
-    }
 
     assertCanManageProject(project, actor);
 
@@ -75,11 +73,7 @@ export async function createTaskForProject(
 export async function listTasksForProject(
     projectId: number
 ): Promise<DatabaseTask[]> {
-    const project = await findProjectById(projectId);
-
-    if (!project) {
-        throw new AppError(404, "Project not found");
-    }
+    await findProjectById(projectId);
 
     return listTasksForProjectRepository(projectId);
 }
@@ -88,8 +82,14 @@ export async function listTasksForProject(
 
 export async function findTaskById(
     taskId: number
-): Promise<DatabaseTask | null> {
-    return findTaskByIdRepository(taskId);
+): Promise<DatabaseTask> {
+    const task = await findTaskByIdRepository(taskId);
+
+    if (!task) {
+        throw new NotFoundError("Task not found");
+    }
+
+    return task;
 }
 
 
@@ -98,17 +98,17 @@ export async function updateTask(
     taskId: number,
     input: UpdateDatabaseTaskInput,
     actor: AuthenticatedUser
-): Promise<DatabaseTask | null> {
-    const task = await findTaskByIdRepository(taskId);
-
-    if (!task) {
-        return null;
-    }
-
-    await assertCanManageTask(task, actor);
+): Promise<DatabaseTask> {
+    await findManageableTask(taskId, actor);
     await assertAssigneeExists(input.assignedTo);
 
-    return updateTaskRepository(taskId, input);
+    const task = await updateTaskRepository(taskId, input);
+
+    if (!task) {
+        throw new NotFoundError("Task not found");
+    }
+
+    return task;
 }
 
 
@@ -116,14 +116,12 @@ export async function updateTask(
 export async function deleteTask(
     taskId: number,
     actor: AuthenticatedUser
-): Promise<DatabaseTask | null> {
-    const task = await findTaskByIdRepository(taskId);
+): Promise<void> {
+    await findManageableTask(taskId, actor);
+
+    const task = await deleteTaskRepository(taskId);
 
     if (!task) {
-        return null;
+        throw new NotFoundError("Task not found");
     }
-
-    await assertCanManageTask(task, actor);
-
-    return deleteTaskRepository(taskId);
 }

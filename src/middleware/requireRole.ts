@@ -4,8 +4,9 @@ import type {
     Response
 } from "express";
 
-import { AppError } from "../errors/AppError.js";
+import { ForbiddenError } from "../errors/AppError.js";
 import type { UserRole } from "../models/user.js";
+import { currentUser } from "./authenticate.js";
 
 // Must run after authenticate.
 function requireRole(...roles: UserRole[]) {
@@ -14,19 +15,8 @@ function requireRole(...roles: UserRole[]) {
         _response: Response,
         next: NextFunction
     ): void => {
-        if (!request.user) {
-            next(new AppError(401, "Authentication required"));
-
-            return;
-        }
-
-        if (!roles.includes(request.user.role)) {
-            next(new AppError(
-                403,
-                "You do not have permission to perform this action"
-            ));
-
-            return;
+        if (!roles.includes(currentUser(request).role)) {
+            throw new ForbiddenError();
         }
 
         next();

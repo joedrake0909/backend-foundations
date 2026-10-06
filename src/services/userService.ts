@@ -1,4 +1,8 @@
-import { AppError } from "../errors/AppError.js";
+import {
+    BadRequestError,
+    NotFoundError,
+    UnauthorizedError
+} from "../errors/AppError.js";
 
 import {
     findUserById as findUserByIdRepository,
@@ -18,7 +22,7 @@ export async function getCurrentUser(
     const user = await findUserByIdRepository(userId);
 
     if (!user) {
-        throw new AppError(401, "User account no longer exists");
+        throw new UnauthorizedError("User account no longer exists");
     }
 
     return user;
@@ -39,13 +43,13 @@ export async function changeUserRole(
 ): Promise<User> {
     // Stops the last admin from locking everyone out by demoting themselves.
     if (userId === actor.id) {
-        throw new AppError(400, "You cannot change your own role");
+        throw new BadRequestError("You cannot change your own role");
     }
 
     const user = await updateUserRoleRepository(userId, role);
 
     if (!user) {
-        throw new AppError(404, "User not found");
+        throw new NotFoundError("User not found");
     }
 
     return user;
